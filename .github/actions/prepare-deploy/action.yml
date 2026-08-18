@@ -1,0 +1,57 @@
+name: Prepare Deploy
+description: >
+  Checks out the repo, syncs it to /opt/{app_name}/repo, symlinks the app's
+  subdirectory as /opt/{app_name}/current, and sets up the shared Ansible
+  tooling venv. Called once per workflow, from the setup job only — the
+  ansible job operates directly against the resulting /opt/{app_name}/current
+  and ansible venv rather than re-running this action.
+
+inputs:
+  app_name:
+    description: App directory name under apps/ and /opt/
+    required: true
+  service_user:
+    description: OS user that owns /opt/{app_name} (defaults to app_name)
+    required: false
+    default: ""
+  ansible_venv_path:
+    description: Absolute path to the shared Ansible tooling venv on this runner
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code to runner workspace
+      uses: actions/checkout@v4.2.2
+      with:
+        fetch-depth: 0
+
+    - name: Sync repository to shared location
+      shell: bash
+      run: |
+        SERVICE_USER="${{ inputs.service_user }}"
+        SERVICE_USER="${SERVICE_USER:-${{ inputs.app_name }}}"
+        echo "🔄 Syncing repository to /opt/${{ inputs.app_name }}/repo..."
+        sudo -u "$SERVICE_USER" rm -rf "/opt/${{ inputs.app_name }}/repo"
+        sudo -u "$SERVICE_USER" cp -a "$GITHUB_WORKSPACE" "/opt/${{ inputs.app_name }}/repo"
+        sudo chgrp -R service-accounts "/opt/${{ inputs.app_name }}/repo"
+        echo "✅ Repository synced to /opt/${{ inputs.app_name }}/repo with correct permissions"
+
+    - name: Setup symlink to app subdirectory
+      shell: bash
+      run: |
+        SERVICE_USER="${{ inputs.service_user }}"
+        SERVICE_USER="${SERVICE_USER:-${{ inputs.app_name }}}"
+        echo "🔗 Creating symlink to ${{ inputs.app_name }} subdirectory..."
+        sudo -u "$SERVICE_USER" rm -rf "/opt/${{ inputs.app_name }}/current"
+        sudo -u "$SERVICE_USER" ln -sfn "/opt/${{ inputs.app_name }}/repo/apps/${{ inputs.app_name }}" "/opt/${{ inputs.app_name }}/current"
+        echo "✅ Symlink created: /opt/${{ inputs.app_name }}/current -> repo/apps/${{ inputs.app_name }}"
+
+    - name: Setup Ansible environment
+      shell: bash
+      run: |
+        VENV="${{ inputs.ansible_venv_path }}"
+        python3 -m venv "$VENV"
+        "$VENV/bin/pip" install --quiet -r "$GITHUB_WORKSPACE/infra/ansible/requirements.txt"
+        "$VENV/bin/ansible-galaxy" collection install -r "$GITHUB_WORKSPACE/infra/ansible/requirements.yml"
+        "$VENV/bin/ansible" --version

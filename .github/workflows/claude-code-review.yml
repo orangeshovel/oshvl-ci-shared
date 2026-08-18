@@ -1,0 +1,54 @@
+name: Claude Code Review
+
+on:
+  workflow_call:
+    secrets:
+      anthropic_api_key:
+        required: true
+
+concurrency:
+  group: claude-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.anthropic_api_key }}
+          track_progress: true
+          use_sticky_comment: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this pull request's diff. This repo has a CLAUDE.md at the
+            repo root describing its architecture, Makefile targets, and
+            conventions - read it first and hold the change to those
+            conventions specifically (not generic style opinions).
+
+            Focus on, in order of importance:
+            1. Correctness - logic errors, unhandled edge cases, error handling
+            2. Security - injected/unsanitized input, secrets handling, auth/authz
+            3. Whether this is likely to fail this repo's CI (lint/format/tests,
+               per the `make lint` / `make test` targets in CLAUDE.md)
+            4. Test coverage for the changed behavior
+            5. Consistency with existing patterns elsewhere in this repo
+
+            Be concise and specific - cite file:line. Skip praise-only remarks.
+            If you find nothing worth flagging, say so briefly rather than
+            inventing nitpicks.

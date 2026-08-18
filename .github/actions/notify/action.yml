@@ -1,0 +1,31 @@
+name: Notify Deploy Failure
+description: >
+  Posts a CI/CD failure notification to Slack via shovel.bot. Bundles its
+  own copy of ci_notify.sh so it can be called from a job with no checkout
+  step of its own (e.g. a notify job that only runs against files already
+  synced to /opt/{app}/repo by a prior job).
+
+inputs:
+  app_name:
+    required: true
+  sha:
+    required: true
+  actor:
+    required: true
+  run_url:
+    required: true
+  log_file:
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        bash "${{ github.action_path }}/ci_notify.sh" \
+          "${{ inputs.app_name }}" \
+          "${{ inputs.sha }}" \
+          "${{ inputs.actor }}" \
+          "${{ inputs.run_url }}" \
+          "${{ inputs.log_file }}" || true
