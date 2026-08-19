@@ -16,7 +16,12 @@ next run.
   calling repo, syncs it to `/opt/{app_name}/repo`, symlinks
   `/opt/{app_name}/current`, and sets up the Ansible tooling venv. Requires
   an `ansible_venv_path` input (this varies per consumer repo, since each
-  self-hosted runner's OS user differs).
+  self-hosted runner's OS user differs). Its `ansible-galaxy collection
+  install` runs with `--force`: the self-hosted runners' collection cache
+  (`~/.ansible/collections`) lives outside the per-run venv and persists
+  across CI runs, so without `--force` a floating git-source collection
+  (e.g. `orangeshovel/oshvl-ansible-shared`) can silently keep serving a
+  stale cached copy after it's updated upstream.
 - **`.github/actions/notify/`** — composite action wrapping `ci_notify.sh`:
   posts a Slack failure notification via shovel.bot. Bundles its own copy
   of the script (referenced via `${{ github.action_path }}`) so it can run

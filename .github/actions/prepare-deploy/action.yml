@@ -53,5 +53,5 @@ runs:
         VENV="${{ inputs.ansible_venv_path }}"
         python3 -m venv "$VENV"
         "$VENV/bin/pip" install --quiet -r "$GITHUB_WORKSPACE/infra/ansible/requirements.txt"
-        "$VENV/bin/ansible-galaxy" collection install -r "$GITHUB_WORKSPACE/infra/ansible/requirements.yml"
+        "$VENV/bin/ansible-galaxy" collection install --force -r "$GITHUB_WORKSPACE/infra/ansible/requirements.yml"
         "$VENV/bin/ansible" --version
