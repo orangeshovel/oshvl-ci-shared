@@ -6,10 +6,6 @@ on:
       anthropic_api_key:
         required: true
 
-concurrency:
-  group: claude-code-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   review:
     runs-on: self-hosted
