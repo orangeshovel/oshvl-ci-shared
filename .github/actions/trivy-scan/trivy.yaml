@@ -1,0 +1,23 @@
+# Single source of truth for Trivy scan settings across all oshvl repos.
+# Loaded by the trivy-scan action via trivy-action's `trivy-config` input.
+# Precedence (trivy-action): action inputs > TRIVY_* env vars > this file, so a
+# consumer overrides a value by passing the matching trivy-scan input.
+exit-code: 1
+format: table
+severity:
+  - HIGH
+  - CRITICAL
+scan:
+  scanners:
+    - vuln
+    - secret
+    - misconfig
+  skip-dirs:
+    - venv
+    - .venv
+    - ansible-venv
+    - staticfiles
+    - node_modules
+    - .git
+vulnerability:
+  ignore-unfixed: true

@@ -26,6 +26,14 @@ next run.
   posts a Slack failure notification via shovel.bot. Bundles its own copy
   of the script (referenced via `${{ github.action_path }}`) so it can run
   from a job with no checkout step of its own.
+- **`.github/actions/trivy-scan/`** — composite action: checks out the repo
+  and runs a Trivy filesystem scan (vuln + secret + misconfig, HIGH/CRITICAL,
+  unfixed ignored) that fails the job on findings. All scan settings live in
+  one file, `trivy-scan/trivy.yaml`, so every repo is configured the same; the
+  action's inputs (severity, scanners, skip dirs, exit code) are optional
+  per-repo overrides. Per-repo suppressions go in a `.trivyignore` (skipped if
+  absent). Wire it into a consumer workflow with no `paths:` filter so every PR
+  is scanned.
 - **`.github/workflows/claude.yml`**, **`claude-code-review.yml`** —
   reusable workflows (`workflow_call`) for `@claude`-comment handling and
   automated PR review via `anthropics/claude-code-action`. Each consumer
@@ -88,7 +96,7 @@ jobs:
 
 Suppress a specific finding with a repo-root `.trivyignore` (one ID per line,
 with a comment saying why and when to revisit). Use `exit_code: "0"` to run
-report-only.
+report-only. Settings live in `trivy-scan/trivy.yaml`; inputs override it.
 
 ```yaml
 # .github/workflows/claude.yml in the consumer repo

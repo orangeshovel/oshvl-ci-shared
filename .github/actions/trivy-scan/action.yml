@@ -13,27 +13,33 @@ inputs:
     required: false
     default: "."
   severity:
-    description: Comma-separated severities that count as findings
+    description: >
+      Override comma-separated severities that count as findings. Empty uses
+      the shared trivy.yaml (HIGH,CRITICAL).
     required: false
-    default: "HIGH,CRITICAL"
+    default: ""
   scanners:
-    description: Comma-separated Trivy scanners (vuln, secret, misconfig, license)
+    description: >
+      Override comma-separated Trivy scanners. Empty uses the shared trivy.yaml
+      (vuln,secret,misconfig).
     required: false
-    default: "vuln,secret,misconfig"
-  ignore_unfixed:
-    description: Ignore vulnerabilities that have no fixed version available
-    required: false
-    default: "true"
+    default: ""
   skip_dirs:
-    description: Comma-separated directories to skip (local venvs, collected static files, etc.)
+    description: >
+      Override comma-separated directories to skip. Empty uses the shared
+      trivy.yaml (local venvs, staticfiles, node_modules, .git).
     required: false
-    default: "venv,.venv,ansible-venv,staticfiles,node_modules,.git"
+    default: ""
   exit_code:
-    description: Exit code when findings are present (1 = fail the job, 0 = report only)
+    description: >
+      Override the exit code when findings are present (0 = report only).
+      Empty uses the shared trivy.yaml (1 = fail the job).
     required: false
-    default: "1"
+    default: ""
   trivyignores:
-    description: Path to a .trivyignore file (ignored if the file does not exist)
+    description: >
+      Path to a .trivyignore file. If the file does not exist it is skipped
+      (trivy-action itself errors on a missing file).
     required: false
     default: ".trivyignore"
 
@@ -43,18 +49,31 @@ runs:
     - name: Checkout code
       uses: actions/checkout@v4.2.2
 
+    - name: Resolve ignore file
+      id: ignorefile
+      shell: bash
+      env:
+        IGNORE_PATH: ${{ inputs.trivyignores }}
+      run: |
+        if [ -n "$IGNORE_PATH" ] && [ -f "$IGNORE_PATH" ]; then
+          echo "path=$IGNORE_PATH" >> "$GITHUB_OUTPUT"
+        else
+          echo "path=" >> "$GITHUB_OUTPUT"
+        fi
+
     # Pinned to an exact release: trivy-action publishes no floating major tag
     # (only vX.Y.Z), and a scanner running with repo access on our runners is
-    # worth bumping deliberately.
+    # worth bumping deliberately. Settings come from trivy.yaml next to this
+    # action; trivy-action only sets an env override when an input is non-empty
+    # and differs from its own default, so empty inputs fall through to the file.
     - name: Run Trivy filesystem scan
       uses: aquasecurity/trivy-action@v0.36.0
       with:
         scan-type: fs
         scan-ref: ${{ inputs.scan_path }}
+        trivy-config: ${{ github.action_path }}/trivy.yaml
         scanners: ${{ inputs.scanners }}
         severity: ${{ inputs.severity }}
-        ignore-unfixed: ${{ inputs.ignore_unfixed }}
         skip-dirs: ${{ inputs.skip_dirs }}
         exit-code: ${{ inputs.exit_code }}
-        trivyignores: ${{ inputs.trivyignores }}
-        format: table
+        trivyignores: ${{ steps.ignorefile.outputs.path }}
