@@ -1,13 +1,16 @@
 name: Secret Scan
 description: >
   Checks out the repo with full history and runs betterleaks (from the team behind
-  gitleaks) to find committed secrets. On pull requests it scans only the PR's commits; on any other trigger (e.g. the weekly
-  schedule) it scans the whole git history, which is what Trivy's filesystem scan cannot
-  do (it only sees the tip tree, so a secret added and later removed is invisible to it).
-  The betterleaks binary is downloaded at a pinned version and verified against an embedded
-  SHA-256 before use. Known/accepted findings go in a repo-root `.betterleaksignore` (one
-  fingerprint per line, with a comment saying why; a legacy `.gitleaksignore` is also read).
-  Live secret validation (which sends detected secrets to provider APIs) is deliberately off.
+  gitleaks) to find committed secrets. On pull requests it scans only the PR's commits;
+  on any other trigger (e.g. the weekly schedule) it scans the whole git history, which is
+  what Trivy's filesystem scan cannot do (it only sees the tip tree, so a secret added and
+  later removed is invisible to it). The betterleaks binary is downloaded at a pinned
+  version and verified against an embedded SHA-256 on every run. On pull requests the ignore
+  file is read from the PR's base commit (a PR cannot suppress its own findings) and inline
+  allow-comments are not honored. Accepted findings go in a repo-root `.betterleaksignore`
+  on the base branch (one fingerprint per line, with a comment saying why; a legacy
+  `.gitleaksignore` is also read). Live secret validation (which sends detected secrets to
+  provider APIs) is deliberately off. Use the `pull_request` trigger, not `pull_request_target`.
 
 inputs:
   log_opts:
@@ -27,25 +30,7 @@ runs:
 
     - name: Install betterleaks (checksum-verified)
       shell: bash
-      run: |
-        set -euo pipefail
-        VERSION=1.10.1
-        case "$(uname -m)" in
-          x86_64)        ARCH=x64;   SHA256=c174b42d7aa60caf58c0c3e555c0e4bed01fe6b0d99a412bce777b5af4ce913e ;;
-          aarch64|arm64) ARCH=arm64; SHA256=62a63199f9f61a6b5e5a6f58f048493db20fbc8c770014f4d903a4d97886e1bf ;;
-          *) echo "::error::unsupported architecture $(uname -m)"; exit 1 ;;
-        esac
-        DEST="${RUNNER_TOOL_CACHE:-$HOME/.cache}/betterleaks/$VERSION/$ARCH"
-        if [ ! -x "$DEST/betterleaks" ]; then
-          tmp="$(mktemp -d)"
-          trap 'rm -rf "$tmp"' EXIT
-          # Redirect stdout instead of `curl -o` (snap-packaged curl can't write arbitrary paths).
-          curl -fsSL "https://github.com/betterleaks/betterleaks/releases/download/v${VERSION}/betterleaks_${VERSION}_linux_${ARCH}.tar.gz" > "$tmp/betterleaks.tar.gz"
-          echo "${SHA256}  $tmp/betterleaks.tar.gz" | sha256sum -c -
-          mkdir -p "$DEST"
-          tar -xzf "$tmp/betterleaks.tar.gz" -C "$DEST" betterleaks
-        fi
-        echo "$DEST" >> "$GITHUB_PATH"
+      run: bash "${{ github.action_path }}/install.sh"
 
     - name: Scan for secrets
       shell: bash
@@ -54,39 +39,4 @@ runs:
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         LOG_OPTS_INPUT: ${{ inputs.log_opts }}
-        # Never validate/analyze findings: that sends detected secrets to provider APIs.
-        # (Also guards against these being set in the runner's environment.)
-        BETTERLEAKS_VALIDATE: "false"
-        BETTERLEAKS_ANALYZE: "false"
-      run: |
-        set -euo pipefail
-        if [ -n "$LOG_OPTS_INPUT" ]; then
-          LOG_OPTS="$LOG_OPTS_INPUT"
-        elif [ "$EVENT_NAME" = "pull_request" ]; then
-          LOG_OPTS="${BASE_SHA}..${HEAD_SHA}"
-        else
-          LOG_OPTS="--all"
-        fi
-        echo "Scanning git history with: --log-opts=$LOG_OPTS"
-        REPORT="${RUNNER_TEMP:-/tmp}/betterleaks-report.json"
-        rm -f "$REPORT"
-        # --redact keeps secret values out of the report and log. Config is deliberately not
-        # auto-loaded from the scanned repo (betterleaks' safe default), so a PR can't weaken
-        # the rules it is scanned with. --exit-code 10 (not 1) so real findings are distinct
-        # from betterleaks' own fatal errors, which also exit 1.
-        rc=0
-        betterleaks git --no-banner --redact --exit-code 10 \
-          --report-format json --report-path "$REPORT" \
-          --log-opts="$LOG_OPTS" . || rc=$?
-        if [ "$rc" -eq 10 ]; then
-          echo "::error::betterleaks found potential secrets in the scanned commits"
-          echo
-          echo "Findings (fingerprint = commit:file:rule:line). If a finding is a false positive"
-          echo "or an accepted/rotated one, add its fingerprint to .betterleaksignore with a comment:"
-          grep -o '"Fingerprint": *"[^"]*"' "$REPORT" | sed 's/^"Fingerprint": *"//; s/"$//' | sort -u | sed 's/^/  /'
-          exit 1
-        elif [ "$rc" -ne 0 ]; then
-          echo "::error::betterleaks failed to run (exit $rc)"
-          exit "$rc"
-        fi
-        echo "No secrets found."
+      run: bash "${{ github.action_path }}/scan.sh"
