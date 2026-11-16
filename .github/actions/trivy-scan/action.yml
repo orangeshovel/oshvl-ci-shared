@@ -1,0 +1,60 @@
+name: Trivy Scan
+description: >
+  Checks out the repo and runs a Trivy filesystem scan (vulnerabilities,
+  secrets, and IaC misconfigurations) against it. Fails the job on findings at
+  or above the configured severity. Defaults are tuned for the oshvl repos
+  (Python apps with requirements.txt, Terraform, Ansible); consumers override
+  via inputs and a repo-root .trivyignore. Intended to be called from a thin
+  per-repo workflow with no `paths:` filter so it runs on every PR.
+
+inputs:
+  scan_path:
+    description: Path to scan, relative to the repo root
+    required: false
+    default: "."
+  severity:
+    description: Comma-separated severities that count as findings
+    required: false
+    default: "HIGH,CRITICAL"
+  scanners:
+    description: Comma-separated Trivy scanners (vuln, secret, misconfig, license)
+    required: false
+    default: "vuln,secret,misconfig"
+  ignore_unfixed:
+    description: Ignore vulnerabilities that have no fixed version available
+    required: false
+    default: "true"
+  skip_dirs:
+    description: Comma-separated directories to skip (local venvs, collected static files, etc.)
+    required: false
+    default: "venv,.venv,ansible-venv,staticfiles,node_modules,.git"
+  exit_code:
+    description: Exit code when findings are present (1 = fail the job, 0 = report only)
+    required: false
+    default: "1"
+  trivyignores:
+    description: Path to a .trivyignore file (ignored if the file does not exist)
+    required: false
+    default: ".trivyignore"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4.2.2
+
+    # Pinned to an exact release: trivy-action publishes no floating major tag
+    # (only vX.Y.Z), and a scanner running with repo access on our runners is
+    # worth bumping deliberately.
+    - name: Run Trivy filesystem scan
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        scan-type: fs
+        scan-ref: ${{ inputs.scan_path }}
+        scanners: ${{ inputs.scanners }}
+        severity: ${{ inputs.severity }}
+        ignore-unfixed: ${{ inputs.ignore_unfixed }}
+        skip-dirs: ${{ inputs.skip_dirs }}
+        exit-code: ${{ inputs.exit_code }}
+        trivyignores: ${{ inputs.trivyignores }}
+        format: table

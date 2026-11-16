@@ -64,6 +64,33 @@ next run.
 ```
 
 ```yaml
+# .github/workflows/security-scan.yml in the consumer repo — NO `paths:` filter,
+# so the scan runs on every PR (including infra-only / docs-only changes).
+name: Security scan
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - uses: orangeshovel/oshvl-ci-shared/.github/actions/trivy-scan@main
+```
+
+Suppress a specific finding with a repo-root `.trivyignore` (one ID per line,
+with a comment saying why and when to revisit). Use `exit_code: "0"` to run
+report-only.
+
+```yaml
 # .github/workflows/claude.yml in the consumer repo
 name: Claude Code
 on:
