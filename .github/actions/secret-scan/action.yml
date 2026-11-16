@@ -1,17 +1,18 @@
 name: Secret Scan
 description: >
-  Checks out the repo with full history and runs gitleaks to find committed secrets.
-  On pull requests it scans only the PR's commits; on any other trigger (e.g. the weekly
+  Checks out the repo with full history and runs betterleaks (from the team behind
+  gitleaks) to find committed secrets. On pull requests it scans only the PR's commits; on any other trigger (e.g. the weekly
   schedule) it scans the whole git history, which is what Trivy's filesystem scan cannot
   do (it only sees the tip tree, so a secret added and later removed is invisible to it).
-  The gitleaks binary is downloaded at a pinned version and verified against an embedded
-  SHA-256 before use. Known/accepted findings go in a repo-root `.gitleaksignore`
-  (one fingerprint per line, with a comment saying why).
+  The betterleaks binary is downloaded at a pinned version and verified against an embedded
+  SHA-256 before use. Known/accepted findings go in a repo-root `.betterleaksignore` (one
+  fingerprint per line, with a comment saying why; a legacy `.gitleaksignore` is also read).
+  Live secret validation (which sends detected secrets to provider APIs) is deliberately off.
 
 inputs:
   log_opts:
     description: >
-      Override the `git log` options gitleaks scans (e.g. `origin/main..HEAD`). Empty means
+      Override the `git log` options betterleaks scans (e.g. `origin/main..HEAD`). Empty means
       the PR's commit range on pull_request events and the full history otherwise.
     required: false
     default: ""
@@ -24,25 +25,25 @@ runs:
       with:
         fetch-depth: 0
 
-    - name: Install gitleaks (checksum-verified)
+    - name: Install betterleaks (checksum-verified)
       shell: bash
       run: |
         set -euo pipefail
-        VERSION=8.30.1
+        VERSION=1.10.1
         case "$(uname -m)" in
-          x86_64)        ARCH=x64;   SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb ;;
-          aarch64|arm64) ARCH=arm64; SHA256=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080 ;;
+          x86_64)        ARCH=x64;   SHA256=c174b42d7aa60caf58c0c3e555c0e4bed01fe6b0d99a412bce777b5af4ce913e ;;
+          aarch64|arm64) ARCH=arm64; SHA256=62a63199f9f61a6b5e5a6f58f048493db20fbc8c770014f4d903a4d97886e1bf ;;
           *) echo "::error::unsupported architecture $(uname -m)"; exit 1 ;;
         esac
-        DEST="${RUNNER_TOOL_CACHE:-$HOME/.cache}/gitleaks/$VERSION/$ARCH"
-        if [ ! -x "$DEST/gitleaks" ]; then
+        DEST="${RUNNER_TOOL_CACHE:-$HOME/.cache}/betterleaks/$VERSION/$ARCH"
+        if [ ! -x "$DEST/betterleaks" ]; then
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
           # Redirect stdout instead of `curl -o` (snap-packaged curl can't write arbitrary paths).
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_${ARCH}.tar.gz" > "$tmp/gitleaks.tar.gz"
-          echo "${SHA256}  $tmp/gitleaks.tar.gz" | sha256sum -c -
+          curl -fsSL "https://github.com/betterleaks/betterleaks/releases/download/v${VERSION}/betterleaks_${VERSION}_linux_${ARCH}.tar.gz" > "$tmp/betterleaks.tar.gz"
+          echo "${SHA256}  $tmp/betterleaks.tar.gz" | sha256sum -c -
           mkdir -p "$DEST"
-          tar -xzf "$tmp/gitleaks.tar.gz" -C "$DEST" gitleaks
+          tar -xzf "$tmp/betterleaks.tar.gz" -C "$DEST" betterleaks
         fi
         echo "$DEST" >> "$GITHUB_PATH"
 
@@ -53,6 +54,10 @@ runs:
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         LOG_OPTS_INPUT: ${{ inputs.log_opts }}
+        # Never validate/analyze findings: that sends detected secrets to provider APIs.
+        # (Also guards against these being set in the runner's environment.)
+        BETTERLEAKS_VALIDATE: "false"
+        BETTERLEAKS_ANALYZE: "false"
       run: |
         set -euo pipefail
         if [ -n "$LOG_OPTS_INPUT" ]; then
@@ -63,6 +68,25 @@ runs:
           LOG_OPTS="--all"
         fi
         echo "Scanning git history with: --log-opts=$LOG_OPTS"
-        # --redact keeps secret values out of the CI log; fingerprints are still printed so
-        # an accepted finding can be added to .gitleaksignore.
-        gitleaks git --no-banner --redact --verbose --exit-code 1 --log-opts="$LOG_OPTS" .
+        REPORT="${RUNNER_TEMP:-/tmp}/betterleaks-report.json"
+        rm -f "$REPORT"
+        # --redact keeps secret values out of the report and log. Config is deliberately not
+        # auto-loaded from the scanned repo (betterleaks' safe default), so a PR can't weaken
+        # the rules it is scanned with. --exit-code 10 (not 1) so real findings are distinct
+        # from betterleaks' own fatal errors, which also exit 1.
+        rc=0
+        betterleaks git --no-banner --redact --exit-code 10 \
+          --report-format json --report-path "$REPORT" \
+          --log-opts="$LOG_OPTS" . || rc=$?
+        if [ "$rc" -eq 10 ]; then
+          echo "::error::betterleaks found potential secrets in the scanned commits"
+          echo
+          echo "Findings (fingerprint = commit:file:rule:line). If a finding is a false positive"
+          echo "or an accepted/rotated one, add its fingerprint to .betterleaksignore with a comment:"
+          grep -o '"Fingerprint": *"[^"]*"' "$REPORT" | sed 's/^"Fingerprint": *"//; s/"$//' | sort -u | sed 's/^/  /'
+          exit 1
+        elif [ "$rc" -ne 0 ]; then
+          echo "::error::betterleaks failed to run (exit $rc)"
+          exit "$rc"
+        fi
+        echo "No secrets found."
