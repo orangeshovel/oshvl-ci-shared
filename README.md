@@ -34,6 +34,23 @@ next run.
   per-repo overrides. Per-repo suppressions go in a `.trivyignore` (skipped if
   absent). Wire it into a consumer workflow with no `paths:` filter so every PR
   is scanned.
+- **`.github/actions/secret-scan/`** — composite action: checks out the repo with full
+  history and runs gitleaks. On pull requests it scans only the PR's commits; on any other
+  trigger (e.g. a weekly schedule) it scans the whole git history, which Trivy's filesystem
+  scan can't do (it only sees the tip tree). The gitleaks binary is downloaded at a pinned
+  version and verified against an embedded SHA-256. Accepted findings go in a repo-root
+  `.gitleaksignore` (one fingerprint per line, with a comment saying why). Use it as its own
+  job next to `trivy-scan`:
+
+  ```yaml
+  jobs:
+    gitleaks:
+      runs-on: self-hosted
+      timeout-minutes: 15
+      steps:
+        - uses: orangeshovel/oshvl-ci-shared/.github/actions/secret-scan@main
+  ```
+
 - **`.github/workflows/claude.yml`**, **`claude-code-review.yml`** —
   reusable workflows (`workflow_call`) for `@claude`-comment handling and
   automated PR review via `anthropics/claude-code-action`. Each consumer
