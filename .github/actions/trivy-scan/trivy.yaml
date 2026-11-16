@@ -12,12 +12,14 @@ scan:
     - vuln
     - secret
     - misconfig
+  # `**/` so these match at any depth (apps/*/venv, infra/ansible/ansible-venv);
+  # a bare name only matches at the scan root.
   skip-dirs:
-    - venv
-    - .venv
-    - ansible-venv
-    - staticfiles
-    - node_modules
-    - .git
+    - "**/venv"
+    - "**/.venv"
+    - "**/ansible-venv"
+    - "**/staticfiles"
+    - "**/node_modules"
+    - "**/.git"
 vulnerability:
   ignore-unfixed: true

@@ -26,8 +26,9 @@ inputs:
     default: ""
   skip_dirs:
     description: >
-      Override comma-separated directories to skip. Empty uses the shared
-      trivy.yaml (local venvs, staticfiles, node_modules, .git).
+      Override comma-separated directories to skip (use `**/name` to match at
+      any depth). Empty uses the shared trivy.yaml (venvs, staticfiles,
+      node_modules, .git at any depth).
     required: false
     default: ""
   exit_code:
