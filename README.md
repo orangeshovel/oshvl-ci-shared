@@ -126,7 +126,8 @@ jobs:
 
 Suppress a specific finding with a repo-root `.trivyignore` (one ID per line,
 with a comment saying why and when to revisit). Use `exit_code: "0"` to run
-report-only. Settings live in `trivy-scan/trivy.yaml`; inputs override it.
+report-only. The findings table is printed in the job log and also shown on the run's
+summary page. Settings live in `trivy-scan/trivy.yaml`; inputs override it.
 
 ```yaml
 # .github/workflows/claude.yml in the consumer repo

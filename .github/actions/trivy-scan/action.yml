@@ -78,3 +78,31 @@ runs:
         skip-dirs: ${{ inputs.skip_dirs }}
         exit-code: ${{ inputs.exit_code }}
         trivyignores: ${{ steps.ignorefile.outputs.path }}
+        output: ${{ runner.temp }}/trivy-report.txt
+
+    # The scan writes its table to a file (above) so it can be shown twice: in the
+    # job log and on the run's summary page. Runs even when the scan failed on
+    # findings; if the scan died before writing a report (tool error) there is
+    # nothing to show and the failed scan step above has the error.
+    - name: Show Trivy report
+      if: always()
+      shell: bash
+      env:
+        REPORT: ${{ runner.temp }}/trivy-report.txt
+      run: |
+        [ -f "$REPORT" ] || exit 0
+        cat "$REPORT"
+        {
+          echo "## Trivy scan"
+          echo
+          if [ -s "$REPORT" ] && grep -q '[^[:space:]]' "$REPORT"; then
+            echo '```'
+            # Job summaries are capped at 1 MiB; keep well under it.
+            head -c 500000 "$REPORT"
+            echo
+            echo '```'
+          else
+            echo "No findings."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+        rm -f "$REPORT"
