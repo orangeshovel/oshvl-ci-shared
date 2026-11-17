@@ -1,0 +1,42 @@
+name: Secret Scan
+description: >
+  Checks out the repo with full history and runs betterleaks (from the team behind
+  gitleaks) to find committed secrets. On pull requests it scans only the PR's commits;
+  on any other trigger (e.g. the weekly schedule) it scans the whole git history, which is
+  what Trivy's filesystem scan cannot do (it only sees the tip tree, so a secret added and
+  later removed is invisible to it). The betterleaks binary is downloaded at a pinned
+  version and verified against an embedded SHA-256 on every run. On pull requests the ignore
+  file is read from the PR's base commit (a PR cannot suppress its own findings) and inline
+  allow-comments are not honored. Accepted findings go in a repo-root `.betterleaksignore`
+  on the base branch (one fingerprint per line, with a comment saying why; a legacy
+  `.gitleaksignore` is also read). Live secret validation (which sends detected secrets to
+  provider APIs) is deliberately off. Use the `pull_request` trigger, not `pull_request_target`.
+
+inputs:
+  log_opts:
+    description: >
+      Override the `git log` options betterleaks scans (e.g. `origin/main..HEAD`). Empty means
+      the PR's commit range on pull_request events and the full history otherwise.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code (full history)
+      uses: actions/checkout@v4.2.2
+      with:
+        fetch-depth: 0
+
+    - name: Install betterleaks (checksum-verified)
+      shell: bash
+      run: bash "${{ github.action_path }}/install.sh"
+
+    - name: Scan for secrets
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        LOG_OPTS_INPUT: ${{ inputs.log_opts }}
+      run: bash "${{ github.action_path }}/scan.sh"

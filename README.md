@@ -34,6 +34,36 @@ next run.
   per-repo overrides. Per-repo suppressions go in a `.trivyignore` (skipped if
   absent). Wire it into a consumer workflow with no `paths:` filter so every PR
   is scanned.
+- **`.github/actions/secret-scan/`** — composite action: checks out the repo with full
+  history and runs betterleaks (from the team behind gitleaks). On pull requests it scans
+  only the PR's commits; on any other trigger (e.g. a weekly schedule) it scans the whole git
+  history, which Trivy's filesystem scan can't do (it only sees the tip tree). The betterleaks
+  binary is downloaded on every run at a pinned version and verified against an embedded
+  SHA-256. Live secret validation (which sends detected secrets to provider APIs) is
+  deliberately off.
+
+  **A PR can't weaken its own scan.** On pull requests the ignore file is read from the PR's
+  *base* commit (not the PR's tree), inline `betterleaks:allow` / `gitleaks:allow` comments are
+  not honored, and betterleaks doesn't auto-load config from the scanned repo. To suppress an
+  accepted finding or a false positive, first merge its fingerprint (`commit:file:rule:line`, as
+  printed by a failing run) into a repo-root `.betterleaksignore` on the base branch, with a
+  comment saying why. Note that a squash merge rewrites commit SHAs, so a fingerprint copied
+  from a PR branch won't match the squashed commit on `main`; copy it from a scan of `main`.
+  Use the `pull_request` trigger; `pull_request_target` is refused. The script tests are in
+  `.github/actions/secret-scan/tests/test-scan.sh`. Use it as its own job next to `trivy-scan`:
+
+  ```yaml
+  permissions:
+    contents: read
+
+  jobs:
+    secrets:
+      runs-on: self-hosted
+      timeout-minutes: 15
+      steps:
+        - uses: orangeshovel/oshvl-ci-shared/.github/actions/secret-scan@main
+  ```
+
 - **`.github/workflows/claude.yml`**, **`claude-code-review.yml`** —
   reusable workflows (`workflow_call`) for `@claude`-comment handling and
   automated PR review via `anthropics/claude-code-action`. Each consumer
